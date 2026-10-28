@@ -104,14 +104,21 @@ async function getPaymentMiddleware() {
   if (!_middlewarePromise) {
     _middlewarePromise = buildPaymentMiddleware();
   }
+  // Hold the exact promise this call awaited. Clearing the slot unconditionally
+  // would let a slow failed waiter erase a newer retry that a concurrent caller
+  // already installed, discarding a successful build and rebuilding on the next
+  // request. Only clear the slot if it still holds the promise we awaited.
+  const pending = _middlewarePromise;
   try {
-    const middleware = await _middlewarePromise;
-    if (!middleware) {
+    const middleware = await pending;
+    if (!middleware && _middlewarePromise === pending) {
       _middlewarePromise = null; // retry once the wallet is provisioned
     }
     return middleware;
   } catch (err) {
-    _middlewarePromise = null; // retry after a transient build/facilitator failure
+    if (_middlewarePromise === pending) {
+      _middlewarePromise = null; // retry after a transient build/facilitator failure
+    }
     throw err;
   }
 }
